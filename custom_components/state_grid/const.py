@@ -1,6 +1,6 @@
 DOMAIN = "state_grid"
 PACKAGE_NAME = "custom_components.state_grid"
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 VERSION_STORAGE = 11
 STORAGE_KEY = "state_grid.config"
 

@@ -1,5 +1,5 @@
 """
-国家电网数据客户端 - v0.4.0
+国家电网数据客户端 - v0.4.1
 
 基于 bilezhou/state_grid 原版修改，主要变更:
 1. 支持点选验证码（LLM 视觉大模型识别）
@@ -571,6 +571,9 @@ class StateGridDataClient:
                 'timestamp': str(ts),
             }
         elif api == get_request_authorize_api:
+            if not self.token:
+                LOGGER.error("authorize 调用但 self.token 为空，无法解密")
+                return {'code': -1, 'message': 'authorize失败: token为空'}
             payload = {
                 'client_id': appKey, 'response_type': 'code',
                 'redirect_url': '/test', 'timestamp': ts, 'rsi': self.token,
@@ -590,7 +593,7 @@ class StateGridDataClient:
                     result = json.loads(decrypted)
                     return result
                 except Exception as ex:
-                    LOGGER.error(f"authorize 解密失败: {ex}, token={self.token[:8] if self.token else 'None'}..., resp前200字符: {text[:200]}")
+                    LOGGER.exception("authorize 解密失败: %s, token=%s..., resp前200字符: %s", ex, self.token[:8] if self.token else 'None', text[:200])
                     return {'code': -1, 'message': f'authorize解密失败: {ex}'}
         elif api == get_web_token_api:
             payload = {
@@ -864,8 +867,11 @@ class StateGridDataClient:
                 canvas_width=310,
                 canvas_height=200,
             )
+        except NotImplementedError:
+            # httpx/openai 内部异常，向上抛出让调用方处理重试
+            raise
         except Exception as ex:
-            LOGGER.error(f"LLM 滑块解算失败: {ex}")
+            LOGGER.exception("LLM 滑块解算失败: %s", ex)
             return 0
 
     def _solve_click_captcha(self, captcha_data: dict) -> str:
@@ -906,8 +912,11 @@ class StateGridDataClient:
             LOGGER.info(f"点选验证码坐标: {coord_str}")
             return coord_str
 
+        except NotImplementedError:
+            # httpx/openai 内部异常，向上抛出让调用方处理重试
+            raise
         except Exception as ex:
-            LOGGER.error(f"点选验证码解算失败: {ex}")
+            LOGGER.exception("点选验证码解算失败: %s", ex)
             return ""
 
     # ─── 主登录流程 ───
@@ -991,44 +1000,51 @@ class StateGridDataClient:
         captcha_type = result.get('captcha_type', 'slider')
         verify_code = None
 
-        if captcha_type == 'click':
-            # 点选验证码 - 使用 LLM 解算（在 executor 中运行避免阻塞事件循环）
-            LOGGER.info("正在使用 LLM 解算点选验证码...")
-            verify_code = await self.hass.async_add_executor_job(
-                self._solve_click_captcha, result
-            )
-            if not verify_code:
-                # LLM 解算失败，尝试刷新重试
-                if retry <= 0:
-                    return {'errcode': 1, 'errmsg': '点选验证码解算失败'}
-                LOGGER.error('点选验证码解算失败，将重试！')
-                result = await self.password_login(account, pwd, True, retry - 1)
-                if result.get('errcode') != 0:
-                    return result
-
-        elif captcha_type == 'slider':
-            # 滑块验证码 - 优先使用 LLM，失败回退像素算法
-            if self.llm_api_key:
-                LOGGER.info("正在使用 LLM 解算滑块验证码...")
+        try:
+            if captcha_type == 'click':
+                # 点选验证码 - 使用 LLM 解算（在 executor 中运行避免阻塞事件循环）
+                LOGGER.info("正在使用 LLM 解算点选验证码...")
                 verify_code = await self.hass.async_add_executor_job(
-                    self._solve_slider_captcha_llm, result
+                    self._solve_click_captcha, result
                 )
-                if verify_code == 0:
-                    LOGGER.warning("LLM 滑块解算失败，回退到像素算法...")
+                if not verify_code:
+                    # LLM 解算失败，尝试刷新重试
+                    if retry <= 0:
+                        return {'errcode': 1, 'errmsg': '点选验证码解算失败'}
+                    LOGGER.error('点选验证码解算失败，将重试！')
+                    result = await self.password_login(account, pwd, True, retry - 1)
+                    if result.get('errcode') != 0:
+                        return result
+
+            elif captcha_type == 'slider':
+                # 滑块验证码 - 优先使用 LLM，失败回退像素算法
+                if self.llm_api_key:
+                    LOGGER.info("正在使用 LLM 解算滑块验证码...")
+                    verify_code = await self.hass.async_add_executor_job(
+                        self._solve_slider_captcha_llm, result
+                    )
+                    if verify_code == 0:
+                        LOGGER.warning("LLM 滑块解算失败，回退到像素算法...")
+                        verify_code = await self.hass.async_add_executor_job(
+                            self._solve_slider_captcha_pixel, result
+                        )
+                else:
+                    LOGGER.info("未配置 LLM，使用像素算法解算滑块验证码...")
                     verify_code = await self.hass.async_add_executor_job(
                         self._solve_slider_captcha_pixel, result
                     )
+
             else:
-                LOGGER.info("未配置 LLM，使用像素算法解算滑块验证码...")
+                LOGGER.warning(f"未知验证码类型: {captcha_type}，尝试按滑块处理")
                 verify_code = await self.hass.async_add_executor_job(
                     self._solve_slider_captcha_pixel, result
                 )
-
-        else:
-            LOGGER.warning(f"未知验证码类型: {captcha_type}，尝试按滑块处理")
-            verify_code = await self.hass.async_add_executor_job(
-                self._solve_slider_captcha_pixel, result
-            )
+        except NotImplementedError:
+            LOGGER.error("验证码解算遇到 NotImplementedError（httpx/openai 内部异常）")
+            if retry <= 0:
+                return {'errcode': 1, 'errmsg': '验证码解算内部错误(NotImplementedError)'}
+            LOGGER.warning('验证码解算异常，重试...')
+            return await self.password_login(account, pwd, True, retry - 1)
 
         # 步骤 4: 提交验证（点选和滑块使用不同的验证流程）
         if captcha_type == 'click':
@@ -1075,28 +1091,33 @@ class StateGridDataClient:
                 LOGGER.warning("[邮箱降级] 获取验证码失败: %s", result.get('errmsg', ''))
                 return result
 
-            # 步骤3: 解算验证码
+            # 步骤3: 解算验证码（独立 try-except，捕获 httpx/openai 等库的内部异常）
             captcha_type = result.get('captcha_type', 'slider')
             verify_code = None
 
-            if captcha_type == 'click':
-                LOGGER.info("[邮箱降级] 正在使用 LLM 解算点选验证码...")
-                verify_code = await self.hass.async_add_executor_job(
-                    self._solve_click_captcha, result
-                )
-                if not verify_code:
-                    if retry <= 0:
-                        return {'errcode': 1, 'errmsg': '邮箱降级：点选验证码解算失败'}
-                    LOGGER.warning('[邮箱降级] 点选验证码解算失败，重试...')
-                    return await self._login_with_email_fallback(pwd, retry - 1)
-            elif captcha_type == 'slider':
-                if self.llm_api_key:
-                    LOGGER.info("[邮箱降级] 正在使用 LLM 解算滑块验证码...")
+            try:
+                if captcha_type == 'click':
+                    LOGGER.info("[邮箱降级] 正在使用 LLM 解算点选验证码...")
                     verify_code = await self.hass.async_add_executor_job(
-                        self._solve_slider_captcha_llm, result
+                        self._solve_click_captcha, result
                     )
-                    if verify_code == 0:
-                        LOGGER.warning("[邮箱降级] LLM 滑块解算失败，回退像素算法...")
+                    if not verify_code:
+                        if retry <= 0:
+                            return {'errcode': 1, 'errmsg': '邮箱降级：点选验证码解算失败'}
+                        LOGGER.warning('[邮箱降级] 点选验证码解算失败，重试...')
+                        return await self._login_with_email_fallback(pwd, retry - 1)
+                elif captcha_type == 'slider':
+                    if self.llm_api_key:
+                        LOGGER.info("[邮箱降级] 正在使用 LLM 解算滑块验证码...")
+                        verify_code = await self.hass.async_add_executor_job(
+                            self._solve_slider_captcha_llm, result
+                        )
+                        if verify_code == 0:
+                            LOGGER.warning("[邮箱降级] LLM 滑块解算失败，回退像素算法...")
+                            verify_code = await self.hass.async_add_executor_job(
+                                self._solve_slider_captcha_pixel, result
+                            )
+                    else:
                         verify_code = await self.hass.async_add_executor_job(
                             self._solve_slider_captcha_pixel, result
                         )
@@ -1104,10 +1125,18 @@ class StateGridDataClient:
                     verify_code = await self.hass.async_add_executor_job(
                         self._solve_slider_captcha_pixel, result
                     )
-            else:
-                verify_code = await self.hass.async_add_executor_job(
-                    self._solve_slider_captcha_pixel, result
-                )
+            except NotImplementedError as nie:
+                LOGGER.error("[邮箱降级] 验证码解算遇到 NotImplementedError（httpx/openai 内部异常）: %s", nie)
+                if retry <= 0:
+                    return {'errcode': 1, 'errmsg': f'邮箱降级：验证码解算内部错误(NotImplementedError)'}
+                LOGGER.warning('[邮箱降级] 验证码解算异常，重试...')
+                return await self._login_with_email_fallback(pwd, retry - 1)
+            except Exception as cap_ex:
+                LOGGER.exception("[邮箱降级] 验证码解算异常: %s (type=%s)", cap_ex, type(cap_ex).__name__)
+                if retry <= 0:
+                    return {'errcode': 1, 'errmsg': f'邮箱降级：验证码解算异常({type(cap_ex).__name__})'}
+                LOGGER.warning('[邮箱降级] 验证码解算异常，重试...')
+                return await self._login_with_email_fallback(pwd, retry - 1)
 
             # 步骤4: 提交验证
             if captcha_type == 'click':
@@ -1130,7 +1159,7 @@ class StateGridDataClient:
             return await self.__get_token()
 
         except Exception as ex:
-            LOGGER.error("[邮箱降级] 登录异常: %s (type=%s)", ex, type(ex).__name__)
+            LOGGER.exception("[邮箱降级] 登录异常: %s (type=%s)", ex, type(ex).__name__)
             return {'errcode': 1, 'errmsg': f'邮箱降级登录异常: {ex}'}
 
     async def __get_token(self):
