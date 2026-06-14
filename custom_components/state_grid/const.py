@@ -1,7 +1,7 @@
 DOMAIN = "state_grid"
 PACKAGE_NAME = "custom_components.state_grid"
-VERSION = "0.5.4"
-VERSION_STORAGE = 14
+VERSION = "0.5.5"
+VERSION_STORAGE = 15
 STORAGE_KEY = "state_grid.config"
 
 # 流控相关错误码（密码登录日额度限制）

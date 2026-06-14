@@ -1,7 +1,7 @@
 """
-国家电网数据客户端 - v0.5.4
+国家电网数据客户端 - v0.5.5
 
-基于 bilezhou/state_grid 原版修改，主要变更:
+基于 bilezhou/sgcc_electricity_new 原版修改，主要变更:
 1. 支持点选验证码（LLM 视觉大模型识别）
 2. 支持滑块验证码（LLM + 像素算法双模式）
 3. 自动检测验证码类型
@@ -11,6 +11,9 @@
 7. v0.5.1: 修复邮箱降级未被调用的问题 — RK001是账号维度的限流，
    手机号限流后邮箱仍可登录，遇到RK001时自动降级到邮箱登录
 8. v0.5.2: 移除短信验证码登录（自动化系统无法手动输入验证码）
+9. v0.5.5: 修复峰/尖字段映射错误 — 以bilezhou原版为准：
+   thisPPq=峰(peak), thisTPq=尖(tip); 修复前错误地将
+   thisPPq映射为尖、errmsg映射为峰，且thisTPq完全缺失
 """
 
 import hashlib
@@ -1520,23 +1523,23 @@ class StateGridDataClient:
                 peak = 0
                 valley = 0
                 flat = 0
-                sharp = 0
+                tip = 0
                 for item in result['data']['sevenEleList']:
                     item['dayElePq'] = catchFloat(item, 'dayElePq')
-                    item['errmsg'] = catchFloat(item, 'errmsg')
                     item['thisVPq'] = catchFloat(item, 'thisVPq')
                     item['thisNPq'] = catchFloat(item, 'thisNPq')
                     item['thisPPq'] = catchFloat(item, 'thisPPq')
+                    item['thisTPq'] = catchFloat(item, 'thisTPq')
                     total += item['dayElePq']
-                    peak += item['errmsg']
                     valley += item['thisVPq']
                     flat += item['thisNPq']
-                    sharp += item['thisPPq']
+                    peak += item['thisPPq']
+                    tip += item['thisTPq']
                 monthBill['month_ele_num'] = normal_round(total, 2)
                 monthBill['month_p_ele_num'] = normal_round(peak, 2)
                 monthBill['month_v_ele_num'] = normal_round(valley, 2)
                 monthBill['month_n_ele_num'] = normal_round(flat, 2)
-                monthBill['month_t_ele_num'] = normal_round(sharp, 2)
+                monthBill['month_t_ele_num'] = normal_round(tip, 2)
                 monthBill['daily_ele'] = result['data']['sevenEleList']
 
     # ─── 数据刷新 ───
@@ -1623,7 +1626,7 @@ class StateGridDataClient:
                     daily_peak = 0
                     daily_valley = 0
                     daily_flat = 0
-                    daily_sharp = 0
+                    daily_tip = 0
                     account['daily_lasted_date'] = f"{now.year}-{now.month:02d}-{now.day:02d}"
 
                     if has_valid:
@@ -1633,23 +1636,23 @@ class StateGridDataClient:
                         latest_date = datetime.datetime.strptime(latest['day'], '%Y%m%d')
                         account['daily_lasted_date'] = f"{latest_date.year}-{latest_date.month:02d}-{latest_date.day:02d}"
                         daily_total = catchFloat(latest, 'dayElePq')
-                        daily_peak = catchFloat(latest, 'errmsg')
                         daily_valley = catchFloat(latest, 'thisVPq')
                         daily_flat = catchFloat(latest, 'thisNPq')
-                        daily_sharp = catchFloat(latest, 'thisPPq')
+                        daily_peak = catchFloat(latest, 'thisPPq')
+                        daily_tip = catchFloat(latest, 'thisTPq')
 
                     account['daily_ele_num'] = normal_round(daily_total, 2)
                     account['daily_p_ele_num'] = normal_round(daily_peak, 2)
                     account['daily_v_ele_num'] = normal_round(daily_valley, 2)
                     account['daily_n_ele_num'] = normal_round(daily_flat, 2)
-                    account['daily_t_ele_num'] = normal_round(daily_sharp, 2)
+                    account['daily_t_ele_num'] = normal_round(daily_tip, 2)
 
                     # 月度累计
                     month_total = 0
                     month_peak = 0
                     month_valley = 0
                     month_flat = 0
-                    month_sharp = 0
+                    month_tip = 0
 
                     if has_valid:
                         for item in account['daily_bill_list']:
@@ -1657,16 +1660,16 @@ class StateGridDataClient:
                             if item_date.month != latest_date.month:
                                 break
                             month_total += catchFloat(item, 'dayElePq')
-                            month_peak += catchFloat(item, 'errmsg')
                             month_valley += catchFloat(item, 'thisVPq')
                             month_flat += catchFloat(item, 'thisNPq')
-                            month_sharp += catchFloat(item, 'thisPPq')
+                            month_peak += catchFloat(item, 'thisPPq')
+                            month_tip += catchFloat(item, 'thisTPq')
 
                     account['month_ele_num'] = normal_round(month_total, 2)
                     account['month_p_ele_num'] = normal_round(month_peak, 2)
                     account['month_v_ele_num'] = normal_round(month_valley, 2)
                     account['month_n_ele_num'] = normal_round(month_flat, 2)
-                    account['month_t_ele_num'] = normal_round(month_sharp, 2)
+                    account['month_t_ele_num'] = normal_round(month_tip, 2)
 
                     # 年度数据
                     if has_valid:
@@ -1723,14 +1726,14 @@ class StateGridDataClient:
                     year_peak = 0
                     year_valley = 0
                     year_flat = 0
-                    year_sharp = 0
+                    year_tip = 0
 
                     if last_bill_date.month == 12:
                         year_total = account['month_ele_num']
                         year_peak = account['month_p_ele_num']
                         year_valley = account['month_v_ele_num']
                         year_flat = account['month_n_ele_num']
-                        year_sharp = account['month_t_ele_num']
+                        year_tip = account['month_t_ele_num']
                     else:
                         if 'year_bill_list' in account:
                             for bill in account['year_bill_list']:
@@ -1738,19 +1741,19 @@ class StateGridDataClient:
                                 year_peak += bill.get('month_p_ele_num', 0)
                                 year_valley += bill.get('month_v_ele_num', 0)
                                 year_flat += bill.get('month_n_ele_num', 0)
-                                year_sharp += bill.get('month_t_ele_num', 0)
+                                year_tip += bill.get('month_t_ele_num', 0)
                         if has_valid and latest_date.month != last_bill_date.month:
                             year_total += account['month_ele_num']
                             year_peak += account['month_p_ele_num']
                             year_valley += account['month_v_ele_num']
                             year_flat += account['month_n_ele_num']
-                            year_sharp += account['month_t_ele_num']
+                            year_tip += account['month_t_ele_num']
 
                     account['year_ele_num'] = normal_round(year_total, 2)
                     account['year_p_ele_num'] = normal_round(year_peak, 2)
                     account['year_v_ele_num'] = normal_round(year_valley, 2)
                     account['year_n_ele_num'] = normal_round(year_flat, 2)
-                    account['year_t_ele_num'] = normal_round(year_sharp, 2)
+                    account['year_t_ele_num'] = normal_round(year_tip, 2)
 
                     # 最近30天日用电列表
                     if 'daily_bill_list' in account:
@@ -1760,9 +1763,9 @@ class StateGridDataClient:
                                 'day': item['day'],
                                 'ele': normal_round(catchFloat(item, 'dayElePq'), 2),
                                 'v_ele': normal_round(catchFloat(item, 'thisVPq'), 2),
-                                'p_ele': normal_round(catchFloat(item, 'errmsg'), 2),
+                                'p_ele': normal_round(catchFloat(item, 'thisPPq'), 2),
                                 'n_ele': normal_round(catchFloat(item, 'thisNPq'), 2),
-                                't_ele': normal_round(catchFloat(item, 'thisPPq'), 2),
+                                't_ele': normal_round(catchFloat(item, 'thisTPq'), 2),
                             })
                         daily_list.reverse()
                         account['recent_30_daily_ele_list'] = daily_list
