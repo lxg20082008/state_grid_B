@@ -1,5 +1,5 @@
 """
-国家电网数据客户端 - v0.5.2
+国家电网数据客户端 - v0.5.3
 
 基于 bilezhou/state_grid 原版修改，主要变更:
 1. 支持点选验证码（LLM 视觉大模型识别）
@@ -497,6 +497,8 @@ class StateGridDataClient:
         # 流控错误 (RK001): 当前账号密码登录日额度用完
         # RK001 是账号维度的限流，手机号限流后邮箱仍可登录
         if code in FLOW_CONTROL_CODES or self._is_flow_control_error(result):
+            LOGGER.warning("[RK001] 数据API遇流控(code=%s), email_account=%s, cooldown=%s",
+                           code, self.email_account or '(未配置)', self.is_rk001_cooldown())
             # 先尝试邮箱降级登录
             if self.email_account and not self.is_rk001_cooldown():
                 LOGGER.info("[RK001] 当前账号被限流，尝试邮箱降级登录...")
@@ -504,6 +506,8 @@ class StateGridDataClient:
                 if login_result:
                     # 邮箱登录成功，重新请求数据
                     return await self.__fetch(api, data)
+            elif not self.email_account:
+                LOGGER.warning("[RK001] 未配置备用邮箱(email_account为空)，无法降级登录！请在HA集成配置中填写备用邮箱")
             # 邮箱降级也失败，设置冷却
             self._set_rk001_cooldown()
             self.need_login = True
@@ -536,6 +540,9 @@ class StateGridDataClient:
         return False
 
     async def __try_password_login(self):
+        LOGGER.debug("[登录流程] 开始, email_account=%s, rk001_cooldown=%s",
+                     self.email_account or '(未配置)', self.is_rk001_cooldown())
+
         # 如果在 RK001 冷却期内，跳过手机号密码登录尝试
         if self.is_rk001_cooldown():
             # 冷却期内仍可尝试邮箱降级
@@ -550,6 +557,9 @@ class StateGridDataClient:
 
         # 先用当前账号（手机号）尝试登录
         result = await self.password_login(self.account, self.password, True, 3)
+        LOGGER.debug("[登录流程] password_login 返回: errcode=%s, rk001=%s, errmsg=%s",
+                     result.get('errcode'), result.get('rk001'), result.get('errmsg', '')[:60])
+
         if 'errcode' in result and result['errcode'] == 0:
             self.need_login = False
             self.shown_notification = False
@@ -561,7 +571,7 @@ class StateGridDataClient:
 
         # 如果手机号命中RK001，尝试邮箱降级
         if self._is_flow_control_error(result):
-            LOGGER.warning("[RK001] 手机号被限流，尝试邮箱降级登录...")
+            LOGGER.warning("[RK001] 手机号被限流，尝试邮箱降级登录 (email=%s)...", self.email_account or '(未配置)')
             login_result = await self.__try_email_fallback_login()
             if login_result:
                 return
