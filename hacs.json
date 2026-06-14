@@ -1,8 +1,6 @@
 {
   "name": "国家电网",
   "content_in_root": false,
-  "zip_release": true,
-  "filename": "state_grid.zip",
   "country": ["CN"],
   "homeassistant": "2023.1.0"
 }
