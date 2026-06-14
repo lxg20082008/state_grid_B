@@ -584,10 +584,14 @@ class StateGridDataClient:
                 if not text.startswith('{'):
                     LOGGER.warning(f"authorize API 返回非JSON响应 (HTTP {resp.status})，可能是流控")
                     return {'code': 11401, 'message': 'authorize返回非JSON响应，疑似IP限流'}
-                result = json.loads(text)
-                result = b(result['data'], self.token)
-                result = json.loads(result)
-                return result
+                try:
+                    result = json.loads(text)
+                    decrypted = b(result['data'], self.token)
+                    result = json.loads(decrypted)
+                    return result
+                except Exception as ex:
+                    LOGGER.error(f"authorize 解密失败: {ex}, token={self.token[:8] if self.token else 'None'}..., resp前200字符: {text[:200]}")
+                    return {'code': -1, 'message': f'authorize解密失败: {ex}'}
         elif api == get_web_token_api:
             payload = {
                 'grant_type': 'authorization_code',
@@ -1058,36 +1062,45 @@ class StateGridDataClient:
         if not self.email_account:
             return {'errcode': 1, 'errmsg': '未配置备用邮箱，无法降级登录'}
         LOGGER.info("=== 流控降级：使用邮箱 %s 登录 ===", self.email_account)
-        # 直接调用内部登录流程，不再走流控检测避免递归
-        result = await self.__get_request_key()
-        if result.get('errcode') != 0:
-            return result
+        try:
+            # 步骤1: 获取密钥
+            result = await self.__get_request_key()
+            if result.get('errcode') != 0:
+                LOGGER.warning("[邮箱降级] 获取密钥失败: %s", result.get('errmsg', ''))
+                return result
 
-        result = await self.__get_pass_verify_code(self.email_account, pwd)
-        if result.get('errcode') != 0:
-            return result
+            # 步骤2: 获取验证码
+            result = await self.__get_pass_verify_code(self.email_account, pwd)
+            if result.get('errcode') != 0:
+                LOGGER.warning("[邮箱降级] 获取验证码失败: %s", result.get('errmsg', ''))
+                return result
 
-        captcha_type = result.get('captcha_type', 'slider')
-        verify_code = None
+            # 步骤3: 解算验证码
+            captcha_type = result.get('captcha_type', 'slider')
+            verify_code = None
 
-        if captcha_type == 'click':
-            LOGGER.info("[邮箱降级] 正在使用 LLM 解算点选验证码...")
-            verify_code = await self.hass.async_add_executor_job(
-                self._solve_click_captcha, result
-            )
-            if not verify_code:
-                if retry <= 0:
-                    return {'errcode': 1, 'errmsg': '邮箱降级：点选验证码解算失败'}
-                LOGGER.warning('[邮箱降级] 点选验证码解算失败，重试...')
-                return await self._login_with_email_fallback(pwd, retry - 1)
-        elif captcha_type == 'slider':
-            if self.llm_api_key:
-                LOGGER.info("[邮箱降级] 正在使用 LLM 解算滑块验证码...")
+            if captcha_type == 'click':
+                LOGGER.info("[邮箱降级] 正在使用 LLM 解算点选验证码...")
                 verify_code = await self.hass.async_add_executor_job(
-                    self._solve_slider_captcha_llm, result
+                    self._solve_click_captcha, result
                 )
-                if verify_code == 0:
-                    LOGGER.warning("[邮箱降级] LLM 滑块解算失败，回退像素算法...")
+                if not verify_code:
+                    if retry <= 0:
+                        return {'errcode': 1, 'errmsg': '邮箱降级：点选验证码解算失败'}
+                    LOGGER.warning('[邮箱降级] 点选验证码解算失败，重试...')
+                    return await self._login_with_email_fallback(pwd, retry - 1)
+            elif captcha_type == 'slider':
+                if self.llm_api_key:
+                    LOGGER.info("[邮箱降级] 正在使用 LLM 解算滑块验证码...")
+                    verify_code = await self.hass.async_add_executor_job(
+                        self._solve_slider_captcha_llm, result
+                    )
+                    if verify_code == 0:
+                        LOGGER.warning("[邮箱降级] LLM 滑块解算失败，回退像素算法...")
+                        verify_code = await self.hass.async_add_executor_job(
+                            self._solve_slider_captcha_pixel, result
+                        )
+                else:
                     verify_code = await self.hass.async_add_executor_job(
                         self._solve_slider_captcha_pixel, result
                     )
@@ -1095,28 +1108,30 @@ class StateGridDataClient:
                 verify_code = await self.hass.async_add_executor_job(
                     self._solve_slider_captcha_pixel, result
                 )
-        else:
-            verify_code = await self.hass.async_add_executor_job(
-                self._solve_slider_captcha_pixel, result
-            )
 
-        # 提交验证
-        if captcha_type == 'click':
-            result = await self.__verify_click_captcha(self.email_account, pwd, verify_code, self.ticket)
+            # 步骤4: 提交验证
+            if captcha_type == 'click':
+                result = await self.__verify_click_captcha(self.email_account, pwd, verify_code, self.ticket)
+                if result.get('errcode') != 0:
+                    result = await self.__verify_password(self.email_account, pwd, verify_code, self.ticket, captcha_type='click')
+            else:
+                result = await self.__verify_password(self.email_account, pwd, verify_code, self.ticket, captcha_type='slider')
+
             if result.get('errcode') != 0:
-                result = await self.__verify_password(self.email_account, pwd, verify_code, self.ticket, captcha_type='click')
-        else:
-            result = await self.__verify_password(self.email_account, pwd, verify_code, self.ticket, captcha_type='slider')
+                LOGGER.warning("[邮箱降级] 验证失败: %s", result.get('errmsg', ''))
+                if retry <= 0:
+                    return result
+                LOGGER.warning('[邮箱降级] 登录失败，重试...')
+                return await self._login_with_email_fallback(pwd, retry - 1)
 
-        if result.get('errcode') != 0:
-            if retry <= 0:
-                return result
-            LOGGER.warning('[邮箱降级] 登录失败，重试...')
-            return await self._login_with_email_fallback(pwd, retry - 1)
+            # 步骤5: 获取 token
+            self.account = self.email_account
+            self.password = pwd
+            return await self.__get_token()
 
-        self.account = self.email_account
-        self.password = pwd
-        return await self.__get_token()
+        except Exception as ex:
+            LOGGER.error("[邮箱降级] 登录异常: %s (type=%s)", ex, type(ex).__name__)
+            return {'errcode': 1, 'errmsg': f'邮箱降级登录异常: {ex}'}
 
     async def __get_token(self):
         result = await self.__get_request_authorize()
