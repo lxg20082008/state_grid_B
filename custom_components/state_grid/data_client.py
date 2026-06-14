@@ -1336,7 +1336,10 @@ class StateGridDataClient:
             if self.powerUserList is not None:
                 exist_map = {item['consNo_dst']: item for item in self.powerUserList}
             new_list = []
-            for item in result['data']['bizrt']['powerUserList']:
+            raw_list = result['data']['bizrt']['powerUserList']
+            LOGGER.debug("[户号] API返回 %d 个户表，字段名: %s", len(raw_list), 
+                         list(raw_list[0].keys()) if raw_list else '[]')
+            for item in raw_list:
                 if item['consNo_dst'] in exist_map:
                     new_list.append(exist_map[item['consNo_dst']])
                 else:
@@ -1369,7 +1372,7 @@ class StateGridDataClient:
                     'consNoSrc': door_account['consNo_dst'],
                     'proCode': door_account.get('proNo', door_account.get('provinceId', None)),
                     'sceneType': door_account.get('consSortCode', door_account.get('elecTypeCode', None)),
-                    'consType': door_account.get('consType', '1'),
+                    'consType': door_account.get('consType', door_account.get('constType', '1')),
                     'orgNo': door_account['orgNo'],
                 }],
             },
@@ -1390,7 +1393,7 @@ class StateGridDataClient:
                 'acctId': self.userInfo['userId'],
                 'channelCode': configuration['channelCode'],
                 'getday': '11',
-                'consType': door_account.get('consType', '1'),
+                'consType': door_account.get('consType', door_account.get('constType', '1')),
                 'funcCode': 'ALIPAY_01',
                 'orgNo': door_account['orgNo'],
                 'proCode': door_account['proNo'],
@@ -1434,7 +1437,7 @@ class StateGridDataClient:
                 'orgNo': door_account['orgNo'],
                 'queryDate': query_str,
                 'provinceCode': door_account['proNo'],
-                'consType': door_account.get('consType', '1'),
+                'consType': door_account.get('consType', door_account.get('constType', '1')),
                 'userAccountId': self.userInfo['userId'],
                 'serialNo': '', 'srvCode': '',
                 'userName': self.userInfo['loginAccount'],
@@ -1570,7 +1573,7 @@ class StateGridDataClient:
                         prepay_bal = catchFloat(balance_data, 'prepayBal')
                         sum_money = catchFloat(balance_data, 'sumMoney')
                         history_owe = catchFloat(balance_data, 'historyOwe')
-                        cons_type = balance_data.get('consType', '1')
+                        cons_type = balance_data.get('consType', balance_data.get('constType', '1'))
                         is_ment = ''
                         if 'isMent' in balance_data:
                             is_ment = balance_data['isMent']
