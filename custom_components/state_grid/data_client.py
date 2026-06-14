@@ -1,5 +1,5 @@
 """
-国家电网数据客户端 - v0.5.5
+国家电网数据客户端 - v0.5.6
 
 基于 bilezhou/sgcc_electricity_new 原版修改，主要变更:
 1. 支持点选验证码（LLM 视觉大模型识别）
@@ -14,6 +14,8 @@
 9. v0.5.5: 修复峰/尖字段映射错误 — 以bilezhou原版为准：
    thisPPq=峰(peak), thisTPq=尖(tip); 修复前错误地将
    thisPPq映射为尖、errmsg映射为峰，且thisTPq完全缺失
+10. v0.5.6: 余额和日用电API查询失败时增加详细错误日志；
+   修复日用电consType硬编码为'1'的问题，改为从户号数据读取
 """
 
 import hashlib
@@ -1389,6 +1391,10 @@ class StateGridDataClient:
             balance_list = result['data']['list']
             if len(balance_list) != 0:
                 door_account['account_balance'] = balance_list[0]
+        else:
+            code = result.get('code', '?')
+            msg = result.get('message', result.get('errmsg', ''))
+            LOGGER.warning('[余额] 户号 %s 查询失败: code=%s, msg=%s', door_account.get('consNo_dst', '?'), code, str(msg)[:120])
 
     async def __get_door_bill(self, door_account, year):
         params = {
@@ -1493,7 +1499,7 @@ class StateGridDataClient:
                 'data': {
                     'acctId': self.userInfo['userId'],
                     'consNo': door_account['consNo_dst'],
-                    'consType': '1',
+                    'consType': door_account.get('consType', door_account.get('constType', '1')),
                     'endTime': end_date,
                     'orgNo': door_account['orgNo'],
                     'queryYear': year,
@@ -1541,6 +1547,10 @@ class StateGridDataClient:
                 monthBill['month_n_ele_num'] = normal_round(flat, 2)
                 monthBill['month_t_ele_num'] = normal_round(tip, 2)
                 monthBill['daily_ele'] = result['data']['sevenEleList']
+        else:
+            code = result.get('code', '?')
+            msg = result.get('message', result.get('errmsg', ''))
+            LOGGER.warning('[日用电] 户号 %s 查询失败: code=%s, msg=%s', door_account.get('consNo_dst', '?'), code, str(msg)[:120])
 
     # ─── 数据刷新 ───
 
