@@ -233,7 +233,7 @@ def find_max_rectangle(matrix):
         return H
 
 class StateGridDataClient:
-        hass=_D;coordinator=_D;session=_D;dataVersion=_D;keyCode=_D;publicKey=_D;need_login=_N;phone=_D;codeKey=_D;serialNo=_D;qrCodeSerial=_D;userInfo=_D;accountInfo=_D;powerUserList=_D;doorAccountDict={};cookie=[];timestamp=int(time.time()*1000);accessToken=_D;refreshToken=_D;token=_D;expirationDate=_D;refresh_interval=8;is_debug=_N;shown_notification=_N
+        hass=_D;coordinator=_D;session=_D;dataVersion=_D;keyCode=_D;publicKey=_D;need_login=_N;phone=_D;codeKey=_D;serialNo=_D;qrCodeSerial=_D;userInfo=_D;accountInfo=_D;powerUserList=_D;doorAccountDict={};cookie=[];timestamp=int(time.time()*1000);accessToken=_D;refreshToken=_D;token=_D;expirationDate=_D;refresh_interval=12;is_debug=_N;shown_notification=_N
 
         # ── 增强字段：LLM 配置 ──
         llm_api_key = ""
@@ -254,7 +254,7 @@ class StateGridDataClient:
                 if B is not _D:
                         try:
                                 A.keyCode=B[_A9];A.publicKey=B[_AR];A.accessToken=B[_Ak];A.refreshToken=B[_Al];A.token=B[_AA];A.userInfo=B[_AS];A.powerUserList=B[_AT];A.doorAccountDict=B.get(_Am,{});A.is_debug=B['is_debug'];A.dataVersion=B[_An];A.account=B[_j];A.password=B[_AF];A.refresh_interval=B[_Ao]
-                                if A.refresh_interval<8:A.refresh_interval=8
+                                if A.refresh_interval<12:A.refresh_interval=12
                                 # 增强字段
                                 A.llm_api_key=B.get('llm_api_key','')
                                 A.llm_base_url=B.get('llm_base_url','https://ark.cn-beijing.volces.com/api/v3')
