@@ -26,13 +26,6 @@ SENSOR_TYPES = [
         "state_class": SensorStateClass.TOTAL,
     },
     {
-        "key": "prepay_balance",
-        "name": "预付费余额",
-        "native_unit_of_measurement": UNIT_YUAN,
-        "device_class": SensorDeviceClass.MONETARY,
-        "state_class": SensorStateClass.TOTAL,
-    },
-    {
         "key": "year_ele_num",
         "name": "年度累计用电",
         "native_unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
@@ -249,8 +242,6 @@ class StateGridSensor(CoordinatorEntity[StateGridCoordinator], SensorEntity):
         key = self.sensor_type["key"]
         if key in ("recent_30_daily_ele_list", "recent_12_monthly_ele_list"):
             return "图表"
-        if key == "prepay_balance" and key not in data:
-            return None
         return data.get(key)
 
     @property
