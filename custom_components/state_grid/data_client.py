@@ -985,6 +985,10 @@ class StateGridDataClient:
         if any(kw in errmsg_lower for kw in flow_keywords):
             return True
 
+        # 检查 rk001 标记字段（password_login 内部返回的流控标记）
+        if result.get('rk001'):
+            return True
+
         # 检查 errcode 本身是否为流控码
         errcode = result.get('errcode')
         if errcode is not None:
@@ -1022,19 +1026,17 @@ class StateGridDataClient:
         # 步骤 1: 获取加密密钥
         result = await self.__get_request_key()
         if result.get('errcode') != 0:
-            # 获取密钥阶段遇流控，设置冷却
+            # 获取密钥阶段遇流控，直接返回让调用方处理降级
             if self._is_flow_control_error(result):
-                self._set_rk001_cooldown()
-                return {'errcode': 1, 'errmsg': '获取密钥遇流控(RK001)，密码登录日额度已用完'}
+                return {'errcode': 1, 'errmsg': '获取密钥遇流控(RK001)，密码登录日额度已用完', 'rk001': True}
             return result
 
         # 步骤 2: 获取验证码
         result = await self.__get_pass_verify_code(account, pwd)
         if result.get('errcode') != 0:
-            # 获取验证码阶段遇流控，设置冷却
+            # 获取验证码阶段遇流控，直接返回让调用方处理降级
             if self._is_flow_control_error(result):
-                self._set_rk001_cooldown()
-                return {'errcode': 1, 'errmsg': '获取验证码遇流控(RK001)，密码登录日额度已用完'}
+                return {'errcode': 1, 'errmsg': '获取验证码遇流控(RK001)，密码登录日额度已用完', 'rk001': True}
             return result
 
         # 步骤 3: 解算验证码
@@ -1099,10 +1101,9 @@ class StateGridDataClient:
             # 滑块验证码：使用 f06 + complexSliderType=blockPuzzle
             result = await self.__verify_password(account, pwd, verify_code, self.ticket, captcha_type='slider')
         if result.get('errcode') != 0:
-            # 验证阶段遇流控，设置冷却（邮箱降级由调用方 __try_password_login 处理）
+            # 验证阶段遇流控，直接返回让调用方处理降级
             if self._is_flow_control_error(result):
-                self._set_rk001_cooldown()
-                return {'errcode': 1, 'errmsg': '验证登录遇流控(RK001)，密码登录日额度已用完'}
+                return {'errcode': 1, 'errmsg': '验证登录遇流控(RK001)，密码登录日额度已用完', 'rk001': True}
             if retry <= 0:
                 return result
             LOGGER.error('账号密码登录失败，将重试！')
