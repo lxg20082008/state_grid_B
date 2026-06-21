@@ -261,6 +261,10 @@ class StateGridDataClient:
                                 A.llm_model=B.get('llm_model','doubao-seed-2-0-pro-260215')
                                 A.email_account=B.get('email_account','')
                                 A._rk001_cooldown_until=B.get('_rk001_cooldown_until',0.0)
+                                # 加载 timestamp，使重启后 12 小时间隔判断仍然正确
+                                # 若旧版存储中没有该字段，则保留类默认值（当前时间）
+                                _saved_ts=B.get(_s)
+                                if _saved_ts and isinstance(_saved_ts,(int,float)) and _saved_ts>0:A.timestamp=int(_saved_ts)
                         except Exception as C:LOGGER.error(C)
 
                 # 配置 LLM 客户端（延迟加载）
@@ -275,6 +279,8 @@ class StateGridDataClient:
                 # 增强字段
                 A['llm_api_key']=B.llm_api_key;A['llm_base_url']=B.llm_base_url;A['llm_model']=B.llm_model
                 A['email_account']=B.email_account;A['_rk001_cooldown_until']=B._rk001_cooldown_until
+                # 保存 timestamp，使重启后 12 小时间隔判断仍然正确
+                A[_s]=B.timestamp
                 await async_save_to_store(B.hass,'state_grid.config',A)
 
         # ────────────────────────────────────────────

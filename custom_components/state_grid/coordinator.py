@@ -15,10 +15,14 @@ class StateGridCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(seconds=300)
         )
-        self.first_setup = True
         self.data_client: StateGridDataClient = hass.data[DOMAIN]
 
     async def _async_update_data(self):
-        await self.data_client.refresh_data(force_refresh=self.first_setup)
-        self.first_setup = False
+        # 智能判断是否需要强制刷新：
+        # - 首次安装（powerUserList 为空）：必须强制刷新，否则永远拉不到数据
+        # - 重启场景（有缓存数据）：不强制刷新，由 refresh_data 内部 12 小时判断决定
+        #   这样可以避免重启就触发 API 调用，消耗 RK001 日额度
+        has_cached_data = bool(self.data_client.powerUserList)
+        force_refresh = not has_cached_data
+        await self.data_client.refresh_data(force_refresh=force_refresh)
         return self.data_client.get_door_account()
