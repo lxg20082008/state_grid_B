@@ -757,6 +757,9 @@ class StateGridDataClient:
         # ────────────────────────────────────────────
         async def refresh_data(C,force_refresh=_N):
                 A5='recent_12_monthly_ele_list';A4='recent_30_daily_ele_list';A3='monthEleCost';A2='last_month_ele_cost';A1='year_ele_cost';A0='%Y%m%d';z='daily_lasted_date';y='isMent';f=force_refresh;e='monthEleNum';d='last_month_ele_num';T='year_ele_num';S='yearTotalCost';R='day';J='year_bill_list';I='balance'
+                # 保存原始 timestamp：__fetch 内部会更新它用于签名，
+                # 如果本次刷新中途失败（登录失败/异常），还原 timestamp 避免下次 12 小时判断错误
+                _orig_ts=C.timestamp
                 try:
                         if f:await C.__get_door_number()
                         A6=f or int(time.time()*1000)-C.timestamp>C.refresh_interval*3600*1000
@@ -764,7 +767,10 @@ class StateGridDataClient:
                         H=datetime.datetime.now();D=H-datetime.timedelta(days=1);U=f"{D.year}-{D.month:02d}-{D.day:02d}";F=D-datetime.timedelta(days=40);V=f"{F.year}-{F.month:02d}-{F.day:02d}"
                         for A in C.powerUserList:
                                 A7=A[_g];C.doorAccountDict[A7]=A;await C.__get_door_balance(A)
-                                if C.need_login is _V:return
+                                if C.need_login is _V:
+                                        # 登录失败：还原 timestamp，下次轮询还能再试
+                                        C.timestamp=_orig_ts
+                                        return
                                 if _Y in A:
                                         g=catchFloat(A[_Y],'accountBalance');AB=catchFloat(A[_Y],'estiAmt');AC=catchFloat(A[_Y],'prepayBal');W=catchFloat(A[_Y],'sumMoney');AD=catchFloat(A[_Y],'historyOwe');h=A[_Y][_AK];i=''
                                         if y in A[_Y]:i=A[_Y][y]
@@ -831,8 +837,13 @@ class StateGridDataClient:
                                         c.reverse();A[A5]=c
                                 else:A[A5]=[]
                                 A['refresh_time']=datetime.datetime.strftime(H,'%Y-%m-%d %H:%M:%S')
+                        # 全部成功才更新 timestamp 并保存
+                        # timestamp 已在 __fetch 中更新为最新请求时间，无需额外设置
                         await C.save_data()
-                except:return 0
+                except:
+                        # 异常时还原 timestamp，避免下次 12 小时判断错误
+                        C.timestamp=_orig_ts
+                        return 0
 
         def get_door_account_list(A):return list(A.doorAccountDict.values())
         def get_door_account(A):return A.doorAccountDict
