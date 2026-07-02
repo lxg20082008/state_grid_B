@@ -2,7 +2,7 @@
 
 [![GitHub release](https://img.shields.io/github/v/release/tiejiang29/state_grid.svg)](https://github.com/tiejiang29/state_grid/releases)
 
-基于 [bilezhou/state_grid](https://github.com/bilezhou/state_grid) 原版改造，**数据获取逻辑完全沿用原版**，仅增强了登录部分，解决了原版验证码无法自动通过的问题。
+基于 [tiejiang29/state_grid](https://github.com/tiejiang29/state_grid) 原版改造，**数据获取逻辑完全沿用原版**，仅增强了登录部分，解决了原版验证码无法自动通过的问题。
 
 ## 与原版（bilezhou）的差异
 
