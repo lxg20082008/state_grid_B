@@ -13,4 +13,4 @@ FLOW_CONTROL_CODES = {11401}
 # LLM 验证码识别配置
 LLM_API_KEY = ""
 LLM_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-LLM_MODEL = "doubao-seed-2-0-pro-260215"
+LLM_MODEL = "doubao-seed-2-1-pro-260628"
