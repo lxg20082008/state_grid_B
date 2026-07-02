@@ -15,10 +15,16 @@ class StateGridOnnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """配置步骤：输入手机号、邮箱（备用）、密码和 LLM 配置。"""
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
-        if self.hass.data.get(DOMAIN):
-            return self.async_abort(reason="single_instance_allowed")
+        LOGGER.debug("开始配置流程，user_input=%s", user_input)
+        try:
+            if self._async_current_entries():
+                LOGGER.debug("已存在配置条目，中止")
+                return self.async_abort(reason="single_instance_allowed")
+            if self.hass.data.get(DOMAIN):
+                LOGGER.debug("DOMAIN 已存在数据，中止")
+                return self.async_abort(reason="single_instance_allowed")
+        except Exception as e:
+            LOGGER.debug("检查已存在配置时出错（可能首次配置）: %s", e)
 
         errors: dict[str, str] = {}
         phone: str = ""
