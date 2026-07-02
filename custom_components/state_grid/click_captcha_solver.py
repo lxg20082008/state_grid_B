@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 _OPENAI_CLIENT = None
 _LLM_CONFIG = {}
 
+# LLM API 超时（秒）- 防止网络不通时 config flow 卡死
+_LLM_TIMEOUT = 30.0
+
 
 def configure_llm(api_key: str, base_url: str, model: str):
     """配置 LLM 参数，在 config_flow 中调用。"""
@@ -47,6 +50,8 @@ def get_llm_client():
             _OPENAI_CLIENT = OpenAI(
                 base_url=_LLM_CONFIG.get("base_url", "https://ark.cn-beijing.volces.com/api/v3"),
                 api_key=_LLM_CONFIG.get("api_key", ""),
+                timeout=_LLM_TIMEOUT,
+                max_retries=0,
             )
         except ImportError:
             logger.error("openai 包未安装，请运行: pip install openai")
@@ -59,7 +64,7 @@ def get_llm_client():
 
 def get_llm_model() -> str:
     """获取当前配置的模型名称。"""
-    return _LLM_CONFIG.get("model", "doubao-seed-2-0-pro-260215")
+    return _LLM_CONFIG.get("model", "doubao-seed-2-1-pro-260628")
 
 
 def base64_to_bytes(base64_data: str) -> bytes:
@@ -192,6 +197,7 @@ def _find_all_icons(
                 {"role": "user", "content": content},
             ],
             max_tokens=4096,
+            timeout=_LLM_TIMEOUT,
             response_format={"type": "json_object"},
         )
         output = response.choices[0].message.content or ""
@@ -229,7 +235,7 @@ def _parse_click_coordinates(
         coords.append((float(x_str), float(y_str)))
 
     if not coords:
-        nums = re.findall(r'(\d+\.?\d+)', text)
+        nums = re.findall(r'(\d+\.?\d*)', text)
         for i in range(0, len(nums) - 1, 2):
             coords.append((float(nums[i]), float(nums[i + 1])))
 
@@ -288,6 +294,7 @@ def solve_slider_captcha_llm(
                 }
             ],
             max_tokens=50,
+            timeout=_LLM_TIMEOUT,
         )
 
         output = response.choices[0].message.content or ""
