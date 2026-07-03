@@ -122,6 +122,15 @@
 | 最新日用电日期 | 数据截止日期 | - |
 | 最近刷新时间 | 上次刷新时间 | - |
 
+## 版本历史
+
+### v0.7.10-patch1 (2026-07-02)
+
+- **修复**: config_flow.py 添加 try/except 和调试日志，防止 500 错误
+- **修复**: OpenAI 客户端添加 30s 超时和 `max_retries=0`，防止 API 不通时 config flow 卡死
+- **更新**: 默认 LLM 模型更新为 `doubao-seed-2-1-pro-260628`
+- **新增**: 电费计费标准配置（月阶梯/年阶梯/平均单价），默认预设北京居民阶梯电价
+
 ## 致谢
 
 - [tiejiang29/state_grid](https://github.com/tiejiang29/state_grid) — LLM 验证码识别与流控降级
