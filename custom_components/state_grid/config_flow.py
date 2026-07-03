@@ -101,6 +101,14 @@ class StateGridOnnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 "llm_model": llm_model,
                                 "email_account": email,
                             },
+                            options={
+                                "billing_standard": "monthly_tiered",
+                                "tier1_max": "240",
+                                "tier2_max": "400",
+                                "tier1_price": "0.4883",
+                                "tier2_price": "0.5883",
+                                "tier3_price": "0.7883",
+                            },
                         )
                     else:
                         errmsg = (
@@ -152,26 +160,26 @@ class StateGridOnnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return OptionsFlowHandler(entry)
 
 
+BILLING_STANDARD_OPTIONS = [
+    {"value": "monthly_tiered", "label": "月阶梯计费"},
+    {"value": "yearly_tiered", "label": "年阶梯计费"},
+    {"value": "average", "label": "平均单价"},
+]
+
+
 class OptionsFlowHandler(config_entries.OptionsFlow):
-    """集成选项：可以修改 LLM 配置和刷新间隔。"""
+    """集成选项：LLM配置、刷新间隔、电费计费标准。"""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        # 新版 HA（Python 3.14 + 最新 HA）的 OptionsFlow 基类把 config_entry
-        # 设为只读 property（无 setter），同时基类没有定义接受参数的 __init__，
-        # 所以：
-        #   - super().__init__(config_entry) 会触发 object.__init__() 报 TypeError
-        #   - self.config_entry = config_entry 会触发 AttributeError
-        # 解决方案：不碰 config_entry 这个名字，用自己的私有属性 _entry 保存。
         self._entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """选项配置入口。"""
-        # 当前配置：优先 entry.options，其次 entry.data
         current = {**(self._entry.data or {}), **(self._entry.options or {})}
 
         if user_input is not None:
-            # 合并新配置（空字符串表示不修改，保留原值）
             new_data = {}
+            # LLM 配置
             for key in ("llm_api_key", "llm_base_url", "llm_model", "email_account"):
                 raw_val = user_input.get(key)
                 val = raw_val.strip() if isinstance(raw_val, str) else ""
@@ -180,7 +188,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 elif key in current and current[key]:
                     new_data[key] = current[key]
 
-            # 刷新间隔（小时）—— 文本框输入，转 int 后 clamp 到 12-48
+            # 刷新间隔
             refresh_interval = user_input.get("refresh_interval")
             if refresh_interval:
                 try:
@@ -189,20 +197,29 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 except (ValueError, TypeError):
                     pass
 
+            # 电费计费标准
+            billing_standard = user_input.get("billing_standard")
+            if billing_standard:
+                new_data["billing_standard"] = billing_standard
+
+            # 阶梯参数
+            for key in ("tier1_max", "tier2_max", "tier1_price", "tier2_price", "tier3_price"):
+                val = user_input.get(key)
+                if val is not None:
+                    new_data[key] = str(val).strip()
+
             # 实时更新运行中的 data_client
             data_client = self.hass.data.get(DOMAIN)
             if data_client:
-                if "llm_api_key" in new_data:
-                    data_client.llm_api_key = new_data["llm_api_key"]
-                if "llm_base_url" in new_data:
-                    data_client.llm_base_url = new_data["llm_base_url"]
-                if "llm_model" in new_data:
-                    data_client.llm_model = new_data["llm_model"]
-                if "email_account" in new_data:
-                    data_client.email_account = new_data["email_account"]
-                if "refresh_interval" in new_data:
-                    data_client.refresh_interval = new_data["refresh_interval"]
-                # 重新配置 LLM 客户端
+                for attr, key in (
+                    ("llm_api_key", "llm_api_key"),
+                    ("llm_base_url", "llm_base_url"),
+                    ("llm_model", "llm_model"),
+                    ("email_account", "email_account"),
+                    ("refresh_interval", "refresh_interval"),
+                ):
+                    if key in new_data:
+                        setattr(data_client, attr, new_data[key])
                 if data_client.llm_api_key:
                     click_captcha_solver.configure_llm(
                         data_client.llm_api_key,
@@ -212,7 +229,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             return self.async_create_entry(title="", data=new_data)
 
-        # 安全提取默认值（处理 None、非字符串等情况）
         def _str(key, fallback=""):
             v = current.get(key)
             if v is None:
@@ -221,7 +237,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return v
             return str(v)
 
-        # 构建表单：所有字段都给安全的默认值
         data_schema = vol.Schema(
             {
                 vol.Optional(
@@ -244,6 +259,42 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     "refresh_interval",
                     default=_str("refresh_interval", "12"),
                     description="刷新间隔（小时，填 12-48 之间的整数）",
+                ): selector({"text": {"type": "text"}}),
+                vol.Required(
+                    "billing_standard",
+                    default=_str("billing_standard", "monthly_tiered"),
+                ): selector(
+                    {
+                        "select": {
+                            "options": BILLING_STANDARD_OPTIONS,
+                            "mode": "dropdown",
+                        }
+                    }
+                ),
+                vol.Optional(
+                    "tier1_max",
+                    default=_str("tier1_max", "240"),
+                    description="第一阶梯档位（度）",
+                ): selector({"text": {"type": "text"}}),
+                vol.Optional(
+                    "tier2_max",
+                    default=_str("tier2_max", "400"),
+                    description="第二阶梯档位（度）",
+                ): selector({"text": {"type": "text"}}),
+                vol.Optional(
+                    "tier1_price",
+                    default=_str("tier1_price", "0.4883"),
+                    description="第一阶梯单价（元/度）",
+                ): selector({"text": {"type": "text"}}),
+                vol.Optional(
+                    "tier2_price",
+                    default=_str("tier2_price", "0.5883"),
+                    description="第二阶梯单价（元/度）",
+                ): selector({"text": {"type": "text"}}),
+                vol.Optional(
+                    "tier3_price",
+                    default=_str("tier3_price", "0.7883"),
+                    description="第三阶梯单价（元/度）",
                 ): selector({"text": {"type": "text"}}),
             }
         )
