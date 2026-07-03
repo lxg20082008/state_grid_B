@@ -2,22 +2,20 @@
 
 [![GitHub release](https://img.shields.io/github/v/release/tiejiang29/state_grid.svg)](https://github.com/tiejiang29/state_grid/releases)
 
-基于 [tiejiang29/state_grid](https://github.com/tiejiang29/state_grid) 原版改造，**数据获取逻辑完全沿用原版**，仅增强了登录部分，解决了原版验证码无法自动通过的问题。
+基于 [tiejiang29/state_grid](https://github.com/tiejiang29/state_grid) 改造，**数据获取逻辑完全沿用原版**，增强了登录部分和配置功能。
 
-## 与原版（bilezhou）的差异
+## 与原版（tiejiang29）的差异
 
 | 特性 | 原版 | 本版 |
 |------|------|------|
-| 数据获取 | ✅ | ✅ 完全相同，未做任何修改 |
-| 滑块验证码 | 像素算法（成功率低） | LLM 视觉大模型 + 像素算法双模式 |
-| 点选验证码 | ❌ 不支持 | ✅ LLM 视觉大模型自动识别 |
-| 验证码类型检测 | 仅滑块 | 自动检测滑块/点选，分别处理 |
-| RK001 流控处理 | 反复重试直到封号 | 冷却到当日23:59:59，不再无效重试 |
-| 手机号限流降级 | ❌ | ✅ 自动切换邮箱登录 |
-| 预付费余额传感器 | 有（常显示未知） | 已移除，保留账户余额传感器 |
-| 数据刷新间隔 | 8小时 | 12小时（国网官网每日更新一次） |
-
-**一句话总结**：数据获取 = 原版代码，登录部分 = 增强版（LLM验证码 + 流控降级）。
+| 数据获取 | ✅ | ✅ 完全相同 |
+| 点选/滑块验证码 | ✅ LLM 视觉大模型 | ✅ 相同，新增 API 超时保护 |
+| RK001 流控处理 | 冷却到当日23:59:59 | ✅ 相同 |
+| 手机号限流降级 | ✅ 自动切换邮箱登录 | ✅ 相同 |
+| config_flow 500 错误 | ❌ 存在 | ✅ 已修复 try/except + 调试日志 |
+| LLM API 超时保护 | ❌ 无（可能卡死10分钟） | ✅ 30秒超时 + 关闭自动重试 |
+| 电费计费标准配置 | ❌ 无 | ✅ 支持月阶梯/年阶梯/平均单价，默认北京居民电价 |
+| 默认 LLM 模型 | doubao-seed-2-0-pro | doubao-seed-2-1-pro-260628 |
 
 ## 功能特性
 
@@ -28,6 +26,7 @@
 - 历史图表 — 最近30天每日用电、最近12个月每月用电
 - LLM 验证码 — 使用视觉大模型自动识别点选/滑块验证码
 - 流控降级 — 手机号登录遇 RK001 限流时，自动切换邮箱登录
+- 电费计费标准 — 支持月阶梯/年阶梯/平均单价，可自定义阶梯档位和单价
 
 ## 安装
 
@@ -36,18 +35,20 @@
 1. 在 HACS 中点击 **集成**
 2. 点击右下角 **探索与下载仓库**
 3. 点击右下角 **自定义仓库**
-4. 仓库地址填入：`https://github.com/tiejiang29/state_grid`
+4. 仓库地址填入：`https://github.com/lxg20082008/state_grid_B`
 5. 类别选择：**集成**
 6. 点击 **添加** → **下载**
 7. 重启 Home Assistant
 
 ### 方式二：手动安装
 
-1. 从 [Releases](https://github.com/tiejiang29/state_grid/releases) 下载最新 zip
+1. 从 [Releases](https://github.com/lxg20082008/state_grid_B/releases) 下载最新 zip
 2. 将 `state_grid` 文件夹复制到 Home Assistant 的 `custom_components/state_grid/` 目录
 3. 重启 Home Assistant
 
 ## 配置
+
+### 首次添加集成
 
 1. 进入 **设置** → **设备与服务** → **添加集成**
 2. 搜索 **"国家电网"**
@@ -57,7 +58,27 @@
    - **密码**：国家电网密码
    - **LLM API Key**：大模型 API 密钥（必填，用于验证码识别）
    - **LLM Base URL**（可选）：默认为火山引擎豆包 API
-   - **LLM Model**（可选）：默认为 `doubao-seed-2-0-pro-260215`
+   - **LLM Model**（可选）：默认为 `doubao-seed-2-1-pro-260628`
+
+### 选项配置（集成添加后可修改）
+
+在已添加的集成中点击 **配置**，可修改：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| LLM API Key | 大模型 API 密钥 | — |
+| LLM Base URL | API 地址 | `https://ark.cn-beijing.volces.com/api/v3` |
+| LLM Model | 模型名称 | `doubao-seed-2-1-pro-260628` |
+| 备用邮箱 | 流控降级邮箱 | — |
+| 刷新间隔 | 数据刷新间隔（小时） | 12 |
+| **电费计费标准** | 月阶梯计费 / 年阶梯计费 / 平均单价 | **月阶梯计费** |
+| **第一阶梯档位** | 第一档用电上限（度） | **240** |
+| **第二阶梯档位** | 第二档用电上限（度） | **400** |
+| **第一阶梯单价** | 第一档电价（元/度） | **0.4883** |
+| **第二阶梯单价** | 第二档电价（元/度） | **0.5883** |
+| **第三阶梯单价** | 第三档电价（元/度） | **0.7883** |
+
+> 电费计费标准默认预设为**北京居民阶梯电价**（月阶梯），请根据您所在地区的实际电价修改。
 
 ### 流控降级说明
 
@@ -103,6 +124,7 @@
 
 ## 致谢
 
+- [tiejiang29/state_grid](https://github.com/tiejiang29/state_grid) — LLM 验证码识别与流控降级
 - [bilezhou/state_grid](https://github.com/bilezhou/state_grid) — 原 HA 集成（数据获取逻辑来源）
 - [ARC-MX/sgcc_electricity_new](https://github.com/ARC-MX/sgcc_electricity_new) — LLM 验证码解算参考
 
